@@ -1,0 +1,16 @@
+{
+    "stkDataPath": "C:/pythonContainer/BasketBuster/Transfer/BPCData/spy2020.csv",
+    "fxDataPath": "C:/pythonContainer/BasketBuster/Transfer/BPCData/FXRatesTRIM.csv",
+    "basketsPath": "C:\\pythonContainer\\BasketBuster\\Transfer\\BPCBaskets",
+    "assetInfoDataPath": "C:\\pythonContainer\\BasketBuster\\Transfer\\BPCData\\SPYassetInfo.csv",
+    "startDate": "2024-01-01",
+    "endDate": "2024-10-10",
+    "mvpTargetStock": "JPM UN",
+    "mvpStartDate": "2024-01-30",
+    "mvpEndDate": "2025-04-30",
+    "mvpStockDataPath": "C:/pythonContainer/BasketBuster/Transfer/BPCData/spy2020.csv",
+    "mvpOutputPath": "C:\\pythonContainer\\BasketBuster\\Transfer\\BPCBaskets",
+    "backtestStartDate": "2024-01-01",
+    "backtestEndDate": "2025-01-01",
+    "backtestOutputFolder": "c:\\pythonContainer\\BasketBuster\\Transfer\\BPCBaskets"
+}
