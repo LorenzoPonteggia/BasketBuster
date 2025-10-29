@@ -6,3 +6,6 @@ Collection of tools use to work with Custom Baskets and equity correlation hedge
 <img width="2632" height="1997" alt="BB4" src="https://github.com/user-attachments/assets/47bfd259-a85f-4afc-b280-b43a88ff832c" />
 <img width="450" height="793" alt="BBhedgeResult" src="https://github.com/user-attachments/assets/6df2b40b-926c-4795-8071-4e27b4a28cc9" />
 <img width="899" height="124" alt="BBbacktest" src="https://github.com/user-attachments/assets/4e0d819c-5856-4010-aea5-3a422ccd3775" />
+<img width="1111" height="771" alt="AssetinfoExample" src="https://github.com/user-attachments/assets/97e72277-215b-479d-a6e2-3eaea8c4f20e" />
+<img width="1149" height="412" alt="stkdataExample" src="https://github.com/user-attachments/assets/f5b2bfd7-3b84-4e76-abc6-2fcc8731e68c" />
+<img width="1005" height="309" alt="FXdataExample" src="https://github.com/user-attachments/assets/c04b0181-df4a-4e34-9638-7e4c6d674518" />
