@@ -413,25 +413,6 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
         log(f"Error in backtest analysis: {e}", "ERROR")
         raise
 
-
-# This block allows the file to be run as a standalone script for testing
-if __name__ == '__main__':
-    # --- Define Inputs (these would eventually come from the GUI) ---
-    PRICES_FILE = 'C:/pythonContainer/BasketBuster/Transfer/BPCData/spy2020.csv'
-    CURRENCY_FILE = 'C:/pythonContainer/BasketBuster/Transfer/BPCData/SPYassetInfo.csv'
-    FX_FILE = 'C:/pythonContainer/BasketBuster/Transfer/BPCData/FXRatesTRIM.csv'
-    
-    # NEW: Define a folder and a list of basket files to analyze
-    BASKET_FOLDER = 'C:/pythonContainer/BasketBuster/Transfer/BPCBaskets/'
-    BASKET_FILES_TO_ANALYZE = ['GS MS BAC.csv', '10names to april25.csv', 'LP CVXPY 2023-2024.csv']
-    
-    # NEW: Define the output Excel file path
-    OUTPUT_EXCEL_FILE = 'C:/pythonContainer/BasketBuster/Transfer/BasketAnalysisOutput.xlsx'
-
-    START_DATE = '2024-01-01'
-    END_DATE = '2024-10-10'
-    TARGET_STOCK = 'JPM UN'
-
     # --- Load all common data files once ---
     print("Loading and preparing common data files...")
     prices_local = pd.read_csv(PRICES_FILE, parse_dates=['Date'], index_col='Date')
@@ -541,4 +522,5 @@ if __name__ == '__main__':
         print(f"\nAnalysis complete. Results saved to {OUTPUT_EXCEL_FILE}")
     except Exception as e:
         print(f"\nError: Could not write to Excel file. Please ensure it is not open. Details: {e}")
+
 
