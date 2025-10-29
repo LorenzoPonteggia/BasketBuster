@@ -10,22 +10,16 @@ from BBGraph import convert_prices_to_usd
 def analyze_hedge_performance(basket_prices_usd, target_stock_prices_usd):
     """
     Assesses the performance of a basket at hedging a target stock.
-
-    This function calculates key metrics to determine how effectively a portfolio (basket)
-    tracks the price movements of a target asset.
-
-    Args:
-        basket_prices_usd (pd.Series): Time series of the basket's value in USD.
-        target_stock_prices_usd (pd.Series): Time series of the target stock's price in USD.
-
-    Returns:
-        dict: A dictionary containing key hedging performance metrics.
     """
-    # 1. Calculate daily returns from the price/value series
-    basket_returns = basket_prices_usd.pct_change().dropna()
-    target_returns = target_stock_prices_usd.pct_change().dropna()
+    # 1) Compute returns and sanitize
+    basket_returns = basket_prices_usd.pct_change()
+    target_returns = target_stock_prices_usd.pct_change()
 
-    # 2. Align the two return series by date, dropping any non-matching dates
+    # Convert ±inf to NaN, then drop
+    basket_returns = basket_returns.replace([np.inf, -np.inf], np.nan).dropna()
+    target_returns = target_returns.replace([np.inf, -np.inf], np.nan).dropna()
+
+    # 2) Align series and drop any remaining NaNs
     df = pd.DataFrame({'basket': basket_returns, 'target': target_returns}).dropna()
 
     if len(df) < 2:
@@ -33,18 +27,16 @@ def analyze_hedge_performance(basket_prices_usd, target_stock_prices_usd):
             'error': 'Not enough overlapping data to calculate performance.'
         }
 
-    # 3. Calculate key performance and risk metrics
+    # 3) Core metrics
     correlation = df['basket'].corr(df['target'])
     r_squared = correlation ** 2
 
     tracking_error_daily = (df['basket'] - df['target']).std()
     tracking_error_annualized = tracking_error_daily * np.sqrt(252)
 
-    # Calculate the beta of the basket relative to the target stock
     covariance = df.cov()
-    beta = covariance.loc['basket', 'target'] / covariance.loc['target', 'target']
+    beta = covariance.loc['basket', 'target'] / covariance.loc['target', 'target'] if covariance.loc['target', 'target'] != 0 else np.nan
 
-    # Calculate hedge effectiveness by measuring the reduction in variance
     variance_target = df['target'].var()
     variance_hedged_portfolio = (df['target'] - df['basket']).var()
     variance_reduction = (variance_target - variance_hedged_portfolio) / variance_target if variance_target > 0 else 0
@@ -287,6 +279,8 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
                 basket_path = os.path.join(basket_folder, basket_filename)
                 basket_weights = pd.read_csv(basket_path, header=None, names=['Stock', 'Weight'])
                 basket_weights = basket_weights.set_index('Stock')
+                basket_weights['Weight'] = pd.to_numeric(basket_weights['Weight'], errors='coerce')
+                basket_weights = basket_weights.dropna(subset=['Weight'])
                 
                 # Filter to stocks available in price data
                 available_stocks = [stock for stock in basket_weights.index if stock in prices_local.columns]
@@ -303,12 +297,14 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
                     fx_rates
                 )
                 
-                # Calculate basket cumulative returns
-                basket_returns = basket_prices_usd.pct_change().fillna(0)
+                # Calculate basket cumulative returns with inf-safe returns
+                basket_returns = basket_prices_usd.pct_change()
+                basket_returns = basket_returns.replace([np.inf, -np.inf], np.nan).fillna(0)
+
                 basket_weights_aligned = basket_weights.reindex(basket_returns.columns).fillna(0)
                 basket_daily_returns = basket_returns.dot(basket_weights_aligned['Weight'])
                 basket_cumulative_returns = (1 + basket_daily_returns).cumprod() - 1
-                
+
                 # Analyze hedge performance if target stock is provided and available
                 if target_stock and target_stock in prices_local.columns:
                     target_prices_usd = convert_prices_to_usd(
@@ -316,9 +312,10 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
                         currency_map, 
                         fx_rates
                     )
-                    target_returns = target_prices_usd.pct_change().fillna(0)
+                    target_returns = target_prices_usd.pct_change()
+                    target_returns = target_returns.replace([np.inf, -np.inf], np.nan).fillna(0)
                     target_cumulative_returns = (1 + target_returns).cumprod() - 1
-                    
+                                    
                     # Calculate hedge performance metrics
                     hedge_metrics = analyze_hedge_performance(
                         basket_cumulative_returns, 
