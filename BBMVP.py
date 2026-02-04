@@ -34,9 +34,6 @@ def optimize_correlation_hedge(
             else:
                 print(message)
             
-    # ---------------------------
-    # Enhanced data loading and cleaning
-    # ---------------------------
     if verbose:
         log(f"Loading data from {input_file}...")
     
@@ -167,12 +164,10 @@ def optimize_correlation_hedge(
         else:
             raise RuntimeError(f"Error loading and preparing data: {e}")
 
-    # ---------------------------
     # Filter hedge universe if specified
-    # ---------------------------
     if hedge_universe is not None:
         # Ensure target stock is included
-        hedge_universe = list(hedge_universe)  # Convert to list if not already
+        hedge_universe = list(hedge_universe)
         if target_stock not in hedge_universe:
             hedge_universe.append(target_stock)
             if verbose:
@@ -186,7 +181,7 @@ def optimize_correlation_hedge(
         if missing_stocks:
             if verbose:
                 log(f"⚠️  Warning: {len(missing_stocks)} stocks from hedge universe not found in data:")
-                for stock in missing_stocks[:10]:  # Show first 10
+                for stock in missing_stocks[:10]:
                     log(f"   • {stock}")
                 if len(missing_stocks) > 10:
                     log(f"   • ... and {len(missing_stocks) - 10} more")
@@ -203,9 +198,6 @@ def optimize_correlation_hedge(
         if verbose:
             log(f"✓ Using full universe: {len(df.columns)} stocks")
 
-    # ---------------------------
-    # Enhanced data quality validation
-    # ---------------------------
     # Check each stock has sufficient valid price data during the analysis period
     min_observations = max(30, int(len(df) * 0.5))  # At least 30 obs or 50% of period
     stocks_to_remove = []
@@ -235,7 +227,6 @@ def optimize_correlation_hedge(
         raise ValueError(f"Target stock '{target_stock}' was removed due to insufficient valid data "
                         f"during period {start_date} to {end_date}")
 
-    # Winsorize extreme returns (cap at specified percentiles) 
     # Use np.log with zero handling
     with np.errstate(divide='ignore', invalid='ignore'):
         log_prices = np.log(df.replace(0, np.nan))  # Replace zeros with NaN before log
@@ -270,16 +261,12 @@ def optimize_correlation_hedge(
     if verbose:
         log(f"✓ Data prepared: {len(price_data)} observations, {len(price_data.columns)} stocks")
 
-    # ---------------------------
     # Compute log returns and covariance matrix
-    # ---------------------------
     log_prices = np.log(price_data)
     returns = log_prices.diff().dropna()
 
 
-    # ---------------------------
     # Apply benchmark neutrality if specified
-    # ---------------------------
     betas = None
     if apply_benchmark_discount:
         if not benchmark_stock or benchmark_stock not in returns.columns:
@@ -306,27 +293,21 @@ def optimize_correlation_hedge(
     R = returns.values
     Sigma = np.cov(R, rowvar=False)
 
-    # ---------------------------
     # Extract target and hedge basket components
-    # ---------------------------
     n = Sigma.shape[0]
     target_index = price_data.columns.get_loc(target_stock)
     Sigma_JJ = Sigma[target_index, target_index]
     Sigma_Jx = np.delete(Sigma[target_index, :], target_index)
     Sigma_xx = np.delete(np.delete(Sigma, target_index, axis=0), target_index, axis=1)
 
-    # ---------------------------
     # Define MIQP variables
-    # ---------------------------
     w_x = cp.Variable(n - 1)
     z = cp.Variable(n - 1, boolean=True)
     if shorting_allowed:
         z_pos = cp.Variable(n - 1, boolean=True)
         z_neg = cp.Variable(n - 1, boolean=True)
 
-    # ---------------------------
     # Objective function
-    # ---------------------------
     # Use psd_wrap only for large universes (>200 stocks) to avoid numerical issues
     if n > 200:
         if verbose:
@@ -335,9 +316,7 @@ def optimize_correlation_hedge(
     else:
         objective = cp.Minimize(cp.quad_form(w_x, Sigma_xx) - 2 * Sigma_Jx @ w_x)
 
-    # ---------------------------
     # Constraints
-    # ---------------------------
     if not shorting_allowed:
         constraints = [
             cp.sum(w_x) == 1,
@@ -371,9 +350,7 @@ def optimize_correlation_hedge(
 
 
 
-    # ---------------------------
     # Solve the problem with comprehensive error handling
-    # ---------------------------
     if verbose:
         log("Solving optimization problem...")
     
@@ -458,40 +435,32 @@ def optimize_correlation_hedge(
         else:
             raise RuntimeError(f"Unexpected optimization error: {e}")
 
-    # ---------------------------
     # Enhanced performance diagnostics and output
-    # ---------------------------
     if w_x.value is None:
         raise ValueError("Solver completed but returned no solution. Check problem formulation and constraints.")
 
     w_x_opt = w_x.value
     w_full = np.insert(w_x_opt, target_index, -1)
 
-    # Calculate comprehensive performance metrics
     # The returns of the zero-investment portfolio (hedge - target) are the tracking residuals
     residuals = R @ w_full
     target_returns = R[:, target_index]
 
-    # Core metrics
     port_variance = Sigma_JJ - 2 * Sigma_Jx @ w_x_opt + w_x_opt @ Sigma_xx @ w_x_opt
     correlation = np.corrcoef(residuals, target_returns)[0, 1]
     r_squared = correlation ** 2
     tracking_error = np.std(residuals)
     tracking_error_annualized = tracking_error * np.sqrt(252)
 
-    # Risk metrics
     var_95 = np.percentile(residuals, 5)
     cvar_95 = residuals[residuals <= var_95].mean()
     max_residual = np.max(np.abs(residuals))
 
-    # Portfolio composition analysis
     active_positions = np.sum(np.abs(w_x_opt) > 1e-6)
     total_gross_exposure = np.sum(np.abs(w_x_opt))
     largest_position = np.max(np.abs(w_x_opt))
 
-    # ---------------------------
     # Filter out zero weights and prepare output
-    # ---------------------------
     stock_names = price_data.columns
     weights_series = pd.Series(w_full, index=stock_names)
     weights_series_excluding_target = weights_series.drop(target_stock)
@@ -503,14 +472,12 @@ def optimize_correlation_hedge(
      # CSV output (only non-zero weights)
     hedge_weights.to_csv(output_file_name, index=True, header=False)
 
-    # Quality checks
     quality_warnings = []
     if tracking_error_annualized > high_tracking_error_threshold:
         quality_warnings.append(f"High tracking error ({tracking_error_annualized:.3f} > {high_tracking_error_threshold:.2f})")
     if active_positions < min_positions_warning:
         quality_warnings.append(f"Very concentrated hedge ({active_positions} positions)")
 
-    # Prepare metrics dictionary
     metrics = {
         'correlation': correlation,
         'r_squared': r_squared,
@@ -525,9 +492,6 @@ def optimize_correlation_hedge(
         'largest_position': largest_position
     }
 
-    # ---------------------------
-    # Save outputs (if requested)
-    # ---------------------------
     if save_files:
         # Create detailed output
         detailed_output = []
@@ -551,7 +515,6 @@ def optimize_correlation_hedge(
         detailed_output.append(f"  Solver Status:              {prob.status}")
         detailed_output.append("")
 
-        # Performance metrics
         detailed_output.append("PERFORMANCE METRICS:")
         detailed_output.append(f"  Correlation with target:    {correlation:.4f}")
         detailed_output.append(f"  R-squared:                  {r_squared:.4f}")
@@ -560,28 +523,24 @@ def optimize_correlation_hedge(
         detailed_output.append(f"  Portfolio variance:         {port_variance:.6f}")
         detailed_output.append("")
 
-        # Risk metrics
         detailed_output.append("RISK METRICS:")
         detailed_output.append(f"  95% VaR (daily):           {var_95:.6f}")
         detailed_output.append(f"  95% CVaR (daily):          {cvar_95:.6f}")
         detailed_output.append(f"  Maximum residual:          {max_residual:.6f}")
         detailed_output.append("")
 
-        # Portfolio composition
         detailed_output.append("PORTFOLIO COMPOSITION:")
         detailed_output.append(f"  Active positions:          {active_positions}/{len(w_x_opt)}")
         detailed_output.append(f"  Gross exposure:            {total_gross_exposure:.4f}")
         detailed_output.append(f"  Largest position:          {largest_position:.4f}")
         detailed_output.append("")
 
-        # Quality warnings
         if quality_warnings:
             detailed_output.append("QUALITY WARNINGS:")
             for warning in quality_warnings:
                 detailed_output.append(f"  • {warning}")
             detailed_output.append("")
 
-        # Hedge weights (only non-zero)
         detailed_output.append(f"OPTIMAL HEDGE WEIGHTS:")
         detailed_output.append(f"Total non-zero positions: {len(hedge_weights)}")
         detailed_output.append("-" * 50)
@@ -595,7 +554,6 @@ def optimize_correlation_hedge(
         detailed_output.append("")
         detailed_output.append(f"Sum of absolute weights: {hedge_weights.abs().sum():.4f}")
 
-        # Save files
         detailed_filename = output_file_name.replace('.csv', '_detailed.txt')
         with open(detailed_filename, 'w') as f:
             f.write('\n'.join(detailed_output))
@@ -621,60 +579,9 @@ def optimize_correlation_hedge(
 
 
 
-    # Return results
     return {
         'hedge_weights': hedge_weights,
         'metrics': metrics,
         'solver_status': prob.status,
         'quality_warnings': quality_warnings
     }
-
-
-# ---------------------------
-# Default configuration for direct execution
-# ---------------------------
-if __name__ == "__main__":
-    # Example hedge universe (comment out to use all stocks)
-    # hedge_universe = ["JPM UN", "BAC UN", "C UN", "WFC UN", "GS UN", "MS UN"]
-    
-    # Default parameters
-    results = optimize_correlation_hedge(
-        target_stock="JPM UN",
-        input_file="C:/pythonContainer/BasketBuster/Transfer/BPCData/spy2020.csv",
-        output_file_name="test.csv",
-        max_positions=25,
-        min_weight=0.01,
-        max_weight=0.20,
-        shorting_allowed=False,
-        apply_outlier_treatment=False,
-        outlier_quantiles=(0.01, 0.99),
-        start_date="2024/01/01",
-        end_date="2024-10-10",
-        high_tracking_error_threshold=0.10,
-        min_positions_warning=5,
-        save_files=True,
-        verbose=True,
-        apply_benchmark_discount=True,
-        benchmark_stock="SPY",
-        hedge_universe=None,
-        log_callback=None   
-    )
-
-
-
-# # From another file:
-# from FactorModels.CorrelationHedgeV1 import optimize_correlation_hedge
-
-# # Run with custom parameters
-# results = optimize_correlation_hedge(
-#     target_stock="AAPL US",
-#     input_file="my_data.csv",
-#     max_positions=15,
-#     save_files=False,  # Don't save files
-#     verbose=False      # Quiet mode
-# )
-
-# # Access results
-# hedge_weights = results['hedge_weights']
-# correlation = results['metrics']['correlation']
-# warnings = results['quality_warnings']
