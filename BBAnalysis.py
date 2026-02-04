@@ -2,16 +2,10 @@ import pandas as pd
 import numpy as np
 import openpyxl
 import os
-
-# We can re-use the currency conversion logic from our existing graph module
 from BBGraph import convert_prices_to_usd
 
-
 def analyze_hedge_performance(basket_prices_usd, target_stock_prices_usd):
-    """
-    Assesses the performance of a basket at hedging a target stock.
-    """
-    # 1) Compute returns and sanitize
+    # Compute returns and sanitize
     basket_returns = basket_prices_usd.pct_change()
     target_returns = target_stock_prices_usd.pct_change()
 
@@ -19,7 +13,7 @@ def analyze_hedge_performance(basket_prices_usd, target_stock_prices_usd):
     basket_returns = basket_returns.replace([np.inf, -np.inf], np.nan).dropna()
     target_returns = target_returns.replace([np.inf, -np.inf], np.nan).dropna()
 
-    # 2) Align series and drop any remaining NaNs
+    # Align series and drop any remaining NaNs
     df = pd.DataFrame({'basket': basket_returns, 'target': target_returns}).dropna()
 
     if len(df) < 2:
@@ -27,7 +21,6 @@ def analyze_hedge_performance(basket_prices_usd, target_stock_prices_usd):
             'error': 'Not enough overlapping data to calculate performance.'
         }
 
-    # 3) Core metrics
     correlation = df['basket'].corr(df['target'])
     r_squared = correlation ** 2
 
@@ -54,26 +47,6 @@ def analyze_hedge_performance(basket_prices_usd, target_stock_prices_usd):
 
 
 def calculate_performance_attribution(basket_weights, prices_local, fx_rates, currency_map, basket_name=None, log_callback=None):
-    """
-    Performs PnL attribution for a basket, breaking down cumulative returns by constituent
-    and by local price changes vs. FX changes.
-
-    This uses a standard additive attribution model for multi-currency portfolios,
-    ensuring that the sum of individual stock daily PnL contributions (as returns)
-    equals the total basket daily return.
-
-    Args:
-        basket_weights (pd.DataFrame): DataFrame with 'Stock' as index and 'Weight' column.
-        prices_local (pd.DataFrame): DataFrame of daily prices in local currency.
-        fx_rates (pd.DataFrame): DataFrame of daily FX rates for converting to USD.
-        currency_map (dict): Dictionary mapping stock tickers to their local currency.
-        basket_name (str, optional): The name of the basket for more descriptive warnings. Defaults to None.
-
-    Returns:
-        tuple: A tuple containing two DataFrames:
-               - daily_attribution_df: A detailed breakdown of daily PnL (as % return contribution) per stock.
-               - total_attribution_df: A summary of total PnL (as % return contribution) from each component per stock.
-    """
     daily_attribution_components = []
     
     # Calculate full USD prices for all relevant stocks
@@ -91,7 +64,6 @@ def calculate_performance_attribution(basket_weights, prices_local, fx_rates, cu
     basket_weights_aligned = basket_weights.loc[valid_stocks_in_basket, 'Weight']
     # Normalize weights if they don't sum to 1, to ensure attribution sums correctly
     if not np.isclose(basket_weights_aligned.sum(), 1.0):
-        # FIX: Use the basket_name parameter for a more informative warning message.
         warning_msg = f"Warning: Basket weights for '{basket_name if basket_name else 'current basket'}' do not sum to 1. Normalizing weights."
         if log_callback:
             log_callback(warning_msg, "WARNING")
@@ -106,15 +78,14 @@ def calculate_performance_attribution(basket_weights, prices_local, fx_rates, cu
     # Calculate the daily return of the entire basket (for reconciliation)
     basket_total_daily_return = (daily_returns_usd_all * basket_weights_aligned).sum(axis=1)
 
-    # Now, calculate attribution for each stock
     for stock in valid_stocks_in_basket:
         weight = basket_weights_aligned.loc[stock]
         currency = currency_map.get(stock, 'USD') # Default to USD
 
-        price_series_local = prices_local[stock] # Local currency prices
+        price_series_local = prices_local[stock]
         
         # Get aligned FX series
-        fx_series_aligned = pd.Series(1.0, index=price_series_local.index) # Default to 1.0 for USD
+        fx_series_aligned = pd.Series(1.0, index=price_series_local.index)
         if currency != 'USD':
             if currency in fx_rates.columns:
                 fx_series_aligned = fx_rates[currency].reindex(price_series_local.index).ffill().bfill()
@@ -126,7 +97,6 @@ def calculate_performance_attribution(basket_weights, prices_local, fx_rates, cu
             fx_series_aligned = pd.Series(1.0, index=price_series_local.index)
 
 
-        # Create a DataFrame for this stock's data
         stock_df = pd.DataFrame({
             'price_local': price_series_local,
             'fx': fx_series_aligned
@@ -139,35 +109,7 @@ def calculate_performance_attribution(basket_weights, prices_local, fx_rates, cu
         # The total USD return for this stock for the day
         stock_df['total_usd_return'] = daily_returns_usd_all[stock]
 
-        # --- Performance Attribution for the stock's USD return ---
-        # The goal is to break down stock_df['total_usd_return'] into local and FX components,
-        # and then multiply by the basket weight.
-
-        # 1. Local Price Contribution (adjusted for previous day's FX)
-        # This is the return from the local price change, if FX rate had been constant.
-        # stock_usd_t_minus_1 = stock_df['price_local'].shift(1) * stock_df['fx'].shift(1)
-        # pnl_local = (stock_df['price_local'] - stock_df['price_local'].shift(1)) * stock_df['fx'].shift(1)
-        # contrib_local = pnl_local / stock_usd_t_minus_1_for_calc if stock_usd_t_minus_1_for_calc is not 0
-
-        # Simplified additive attribution:
-        # PnL_USD_Total = W * (P_t * F_t - P_{t-1} * F_{t-1})
-        # PnL_USD_Total = W * [ (P_t - P_{t-1}) * F_{t-1}   (Local Price Change, fixed FX)
-        #                   +  P_{t-1} * (F_t - F_{t-1})   (FX Change, fixed Local Price)
-        #                   +  (P_t - P_{t-1}) * (F_t - F_{t-1}) ] (Interaction Term)
-        
-        # Expressing as contributions to the *return* of the basket
-        # Contribution (Local) = Weight * Local_Return
         stock_df['pnl_local_return_contrib'] = weight * stock_df['local_return']
-        
-        # Contribution (FX) = Weight * (1 + Local_Return) * FX_Return
-        # This ensures additivity: Total Return = W * Local_Return + W * (1+Local_Return) * FX_Return
-        # (1+total_return) = (1+local_return)(1+fx_return)
-        # total_return = local_return + fx_return + local_return*fx_return
-        # So, for weighted contributions:
-        # W * total_return = W * local_return + W * fx_return + W * local_return * fx_return
-        # We can then attribute:
-        # Local component: W * local_return
-        # FX component: W * fx_return + W * local_return * fx_return  => W * fx_return * (1 + local_return)
         
         stock_df['pnl_fx_return_contrib'] = weight * stock_df['fx_return'] * (1 + stock_df['local_return'])
         
@@ -185,11 +127,8 @@ def calculate_performance_attribution(basket_weights, prices_local, fx_rates, cu
     # Concatenate all daily attribution components
     combined_daily_attribution_df = pd.concat(daily_attribution_components).sort_index()
 
-    # --- Reconciliation Check ---
-    # Sum of individual stock daily PnL contributions should now perfectly equal total basket daily return
     daily_reconciliation_check = combined_daily_attribution_df.groupby(combined_daily_attribution_df.index)['pnl_total_return_contrib'].sum()
     
-    # Optional: reconciliation check
     if log_callback:
         log_callback("Daily Basket Return vs. Sum of Attributed Returns (first 5 days):")
         reco_df = pd.DataFrame({'Basket_Return': basket_total_daily_return, 'Attributed_Sum': daily_reconciliation_check})
@@ -200,15 +139,12 @@ def calculate_performance_attribution(basket_weights, prices_local, fx_rates, cu
         print(reco_df.head())
         print(f"Max difference: {(reco_df['Basket_Return'] - reco_df['Attributed_Sum']).abs().max():.10f}")
 
-    # Total attribution summary: sum of daily contributions for the period
     total_attribution_df = combined_daily_attribution_df.groupby('stock')[
         ['pnl_local_return_contrib', 'pnl_fx_return_contrib', 'pnl_total_return_contrib']
     ].sum().sort_values('pnl_total_return_contrib', ascending=False)
     
-    # Rename columns for clarity for the output Excel file
     total_attribution_df.columns = ['Total Local PnL (%)', 'Total FX PnL (%)', 'Total Stock PnL (%)']
     
-    # The daily attribution df contains all details
     daily_attribution_output_df = combined_daily_attribution_df.copy()
     daily_attribution_output_df.columns = ['Local PnL (%)', 'FX PnL (%)', 'Total PnL (%)', 'stock']
 
@@ -217,24 +153,6 @@ def calculate_performance_attribution(basket_weights, prices_local, fx_rates, cu
 
 def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, basket_files, 
                          start_date, end_date, target_stock=None, output_file=None, log_callback=None):
-    """
-    Main function to run backtest analysis for multiple baskets and save results to Excel.
-    
-    Parameters:
-    - prices_file: Path to stock prices CSV file
-    - currency_file: Path to asset info/currency CSV file  
-    - fx_file: Path to FX rates CSV file
-    - basket_folder: Path to folder containing basket CSV files
-    - basket_files: List of basket CSV filenames to analyze
-    - start_date: Start date for analysis (string)
-    - end_date: End date for analysis (string)
-    - target_stock: Optional target stock ticker for hedge analysis (if None, only attribution analysis is performed)
-    - output_file: Path for output Excel file
-    - log_callback: Optional callback function for logging
-    
-    Returns:
-    - output_file: Path to the created Excel file
-    """
     
     def log(message, level="INFO"):
         if log_callback:
@@ -245,13 +163,11 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
     try:
         log("Starting backtest analysis...")
         
-        # Load all common data files once
         log("Loading and preparing common data files...")
         prices_local = pd.read_csv(prices_file, parse_dates=['Date'], index_col='Date')
         prices_local = prices_local.loc[start_date:end_date]
         
         asset_info = pd.read_csv(currency_file)
-        # Use 'Name' column as key to match tickers used in price data and baskets
         asset_info['Name'] = asset_info['Name'].str.strip()
         currency_map = asset_info.set_index('Name')['CCY'].to_dict()
 
@@ -340,8 +256,6 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
                     log_callback
                 )
                 
-                # Convert total_attribution DataFrame to dictionary format for summary
-                # Get the sum across all stocks for each component
                 attribution_summary = {
                     'Total Local PnL (%)': total_attribution['Total Local PnL (%)'].sum(),
                     'Total FX PnL (%)': total_attribution['Total FX PnL (%)'].sum(), 
@@ -356,11 +270,9 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
                 log(f"Error processing basket {basket_filename}: {e}", "ERROR")
                 continue
         
-        # Create Excel file with results
         log("Creating Excel output file...")
         
         with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
-            # Hedge Performance Summary (only if target stock was provided and analysis was performed)
             if hedge_performance_results:
                 hedge_df = pd.DataFrame(hedge_performance_results)
                 hedge_df.to_excel(writer, sheet_name='Hedge Performance Summary', index=False)
@@ -396,7 +308,6 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
                             log_callback
                         )
                         
-                        # Save to Excel sheet
                         sheet_name = basket_filename.replace('.csv', '')[:31]  # Excel sheet name limit
                         daily_attribution.to_excel(writer, sheet_name=sheet_name, index=True)
                         log(f"  Created '{sheet_name}' sheet with daily attribution data")
@@ -413,14 +324,11 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
         log(f"Error in backtest analysis: {e}", "ERROR")
         raise
 
-    # --- Load all common data files once ---
     print("Loading and preparing common data files...")
     prices_local = pd.read_csv(PRICES_FILE, parse_dates=['Date'], index_col='Date')
     prices_local = prices_local.loc[START_DATE:END_DATE]
     
     asset_info = pd.read_csv(CURRENCY_FILE)
-    # FIX: The currency map must be built using the 'Name' column as the key,
-    # not the 'BBG' column, to match the tickers used in the price data and baskets.
     asset_info['Name'] = asset_info['Name'].str.strip()
     currency_map = asset_info.set_index('Name')['CCY'].to_dict()
 
@@ -429,14 +337,10 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
     
     prices_usd = convert_prices_to_usd(prices_local, currency_map, fx_rates)
     
-    # --- Initialize containers to store results from all baskets ---
     all_hedge_metrics = []
-    # Store total attributions for each basket. Keys are basket filenames, values are DataFrames.
     all_total_attributions = {} 
-    # Store daily attributions for each basket. Keys are basket filenames, values are DataFrames.
     all_daily_attributions = {}
-
-    # --- Loop through each basket and perform the analysis ---
+                             
     for basket_filename in BASKET_FILES_TO_ANALYZE:
         basket_file_path = os.path.join(BASKET_FOLDER, basket_filename)
         
@@ -452,7 +356,6 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
         basket_weights = basket_df.set_index('Stock')
         print(f"Loaded basket '{basket_filename}' with {len(basket_weights)} stocks.")
 
-        # --- 1. Run Hedge Performance Analysis ---
         basket_constituents = basket_weights.index
         valid_constituents = [s for s in basket_constituents if s in prices_usd.columns]
         
@@ -463,8 +366,7 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
         hedge_metrics = analyze_hedge_performance(basket_value, target_prices)
         hedge_metrics['basket_name'] = basket_filename
         all_hedge_metrics.append(hedge_metrics)
-        
-       # --- 2. Run Performance Attribution Analysis ---
+
         daily_attr, total_attr = calculate_performance_attribution(
             basket_weights, prices_local, fx_rates, currency_map, basket_name=basket_filename
         )
@@ -472,16 +374,13 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
             all_total_attributions[basket_filename] = total_attr
             all_daily_attributions[basket_filename] = daily_attr # Store daily attribution
 
-    # --- Write all collected results to a single Excel file ---
     print(f"\n--- Writing all results to {OUTPUT_EXCEL_FILE} ---")
     try:
         with pd.ExcelWriter(OUTPUT_EXCEL_FILE, engine='openpyxl') as writer:
-            # Create and write the hedge performance summary sheet
             hedge_summary_df = pd.DataFrame(all_hedge_metrics).set_index('basket_name')
             hedge_summary_df.to_excel(writer, sheet_name='Hedge Performance Summary')
             print("  ✓ Saved Hedge Performance Summary sheet.")
 
-            # NEW: Create and write a basket-level attribution summary for FX impact
             if all_total_attributions:
                 basket_summary_list = []
                 for basket_name, attr_df in all_total_attributions.items():
@@ -498,7 +397,6 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
                 basket_summary_df.to_excel(writer, sheet_name='Basket Attribution Summary')
                 print("  ✓ Saved Basket Attribution Summary sheet.")
 
-            # Create a summary sheet for all total attributions (by stock)
             if all_total_attributions:
                 combined_total_attr = pd.concat(all_total_attributions, names=['Basket', 'Stock'])
                 combined_total_attr.to_excel(writer, sheet_name='All Baskets Total Attribution')
@@ -506,13 +404,9 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
             else:
                 print("  No total attribution data to save.")
 
-            # Create a separate sheet for each basket's DAILY PnL attribution
             for basket_name, daily_attr_df in all_daily_attributions.items():
                 if not daily_attr_df.empty:
-                    # Sanitize sheet name (Excel has a 31 char limit)
-                    # Use a format that includes stock and date for daily breakdowns
-                    sheet_name = os.path.splitext(basket_name)[0][:20] + '_Daily' # Truncate more for safety
-                    # FIX: Use the correct column name 'Total PnL (%)' for the pivot table values.
+                    sheet_name = os.path.splitext(basket_name)[0][:20] + '_Daily'
                     daily_attr_df_pivot = daily_attr_df.pivot_table(index=daily_attr_df.index, columns='stock', values='Total PnL (%)')
                     daily_attr_df_pivot.to_excel(writer, sheet_name=sheet_name)
                     print(f"  ✓ Saved daily attribution sheet for '{basket_name}'.")
@@ -522,5 +416,6 @@ def run_backtest_analysis(prices_file, currency_file, fx_file, basket_folder, ba
         print(f"\nAnalysis complete. Results saved to {OUTPUT_EXCEL_FILE}")
     except Exception as e:
         print(f"\nError: Could not write to Excel file. Please ensure it is not open. Details: {e}")
+
 
 
