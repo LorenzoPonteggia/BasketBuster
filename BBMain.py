@@ -42,11 +42,9 @@ class MvpWorker(QObject):
         self.params['log_callback'] = self.log_gui
 
     def log_gui(self, message, level="INFO"):
-        """Emits a signal to log messages on the main GUI thread."""
         self.log_message.emit(message, level)
 
     def run(self):
-        """Executes the optimization and emits signals on completion or error."""
         try:
             # The main work is done here
             result = optimize_correlation_hedge(**self.params)
@@ -76,7 +74,6 @@ class BacktestWorker(QObject):
         self.log_message.emit(message, level)
 
     def run(self):
-        """Executes the backtest analysis and emits signals on completion or error."""
         try:
             # The main work is done here
             output_file = run_backtest_analysis(**self.params)
@@ -331,7 +328,6 @@ class BB(QMainWindow):
             return
             
         try:
-            # Check file size and readability
             if os.path.getsize(CONFIG_FILE) == 0:
                 self.log("Configuration file is empty, using defaults", "WARNING")
                 return
@@ -393,7 +389,6 @@ class BB(QMainWindow):
                     except Exception as e:
                         self.log(f"Error parsing date {config_key}: {e}", "WARNING")
             
-            # Set text fields with validation
             text_fields = {
                 "mvpTargetStock": self.mvpTargetStock,
                 "backtestOutputFolder": self.backtestOutputFolder,
@@ -405,7 +400,7 @@ class BB(QMainWindow):
                     widget.setText(value)
                 else:
                     widget.setText("")
-                    if value:  # Only warn if there was a non-empty value
+                    if value:
                         self.log(f"Invalid text value in config: {config_key} = {value}", "WARNING")
                 
             self.log("Configuration loaded successfully")
@@ -467,7 +462,6 @@ class BB(QMainWindow):
             
             if config_errors:
                 self.log(f"Configuration validation errors: {', '.join(config_errors)}", "ERROR")
-                # Still try to save, but warn user
             
             # Create backup of existing config if it exists
             if os.path.exists(CONFIG_FILE):
@@ -497,13 +491,13 @@ class BB(QMainWindow):
 
     def stkDataPath(self):
         StkDataPath = QFileDialog.getOpenFileName(self, 'Open File', './BPCData', filter='CSV Files (*.csv)')
-        if StkDataPath[0]:  # Only update if a file was selected
+        if StkDataPath[0]: 
             self.stkDataPathLineEdit.setText(StkDataPath[0])
             self.log(f"Stock data path selected: {os.path.basename(StkDataPath[0])}")
 
     def mvpStkDataPath(self):
         mvpStkDataPath = QFileDialog.getOpenFileName(self, 'Open File', './BPCData', filter='CSV Files (*.csv)')
-        if mvpStkDataPath[0]:  # Only update if a file was selected
+        if mvpStkDataPath[0]:
             self.mvpStkDataPath.setText(mvpStkDataPath[0])
             self.log(f"Stock data path selected: {os.path.basename(mvpStkDataPath[0])}")
 
@@ -912,7 +906,6 @@ class BB(QMainWindow):
                     self.log("No valid stocks or baskets available for plotting.", "ERROR")
                     return
 
-            # Call plot function with comprehensive error handling
             try:
                 fig = plot(
                     self.prices_usd,
@@ -923,7 +916,6 @@ class BB(QMainWindow):
                     log_callback=self.log
                 )
                 
-                # Validate that we got a valid figure
                 if fig is None:
                     raise ValueError("Plot function returned None")
 
@@ -940,7 +932,6 @@ class BB(QMainWindow):
                 self.log(f"Error in plot generation: {e}", "ERROR")
                 return
 
-            # Generate HTML with error handling
             try:
                 html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
                 
@@ -957,7 +948,6 @@ class BB(QMainWindow):
                     self.log(f"Fallback HTML generation also failed: {e2}", "ERROR")
                     return
 
-            # Inject comprehensive dark styling
             dark_css = """
             <style>
                 body { 
@@ -977,7 +967,6 @@ class BB(QMainWindow):
             except Exception as e:
                 self.log(f"Warning: Could not inject dark theme CSS: {e}", "WARNING")
 
-            # Display in WebView with error handling
             try:
                 self.plotWebView.setHtml(html)
                 
@@ -996,7 +985,7 @@ class BB(QMainWindow):
                 try:
                     self.plotWebView.setHtml(error_html)
                 except Exception:
-                    pass  # If even error display fails, give up silently
+                    pass
             
         except MemoryError:
             self.log("Insufficient memory to generate plot. Try reducing the number of assets or date range.", "ERROR")
@@ -1042,7 +1031,6 @@ class BB(QMainWindow):
     def mvpHedge(self):
         self.log("Starting MVP Hedge...")
         try:
-            # Validate all input fields before processing
             validation_errors = []
             
             # Check required text fields
@@ -1064,7 +1052,6 @@ class BB(QMainWindow):
             if self.mvpOutputPath.text().strip() and not os.path.isdir(self.mvpOutputPath.text().strip()):
                 validation_errors.append(f"Output directory not found: {self.mvpOutputPath.text()}")
             
-            # Validate numeric inputs
             try:
                 max_positions = int(self.mvpMaxPositions.text())
                 if max_positions <= 0:
@@ -1224,29 +1211,10 @@ class BB(QMainWindow):
             self.mvpRunHedgeButton.setEnabled(True)
             self.mvpRunHedgeButton.setText("Run Hedge")
 
-
-# def optimize_correlation_hedge(
-#     target_stock="JPM UN",
-#     input_file="FactorModels/data2023.csv",
-#     output_file_name="CVXPY CPLEX MIQP v7.csv",
-#     max_positions=25,
-#     min_weight=0.01,
-#     max_weight=0.20,
-#     shorting_allowed=False,
-#     apply_outlier_treatment=True,
-#     outlier_quantiles=(0.01, 0.99),
-#     start_date="2023/01/01",
-#     end_date="2024-10-10",
-#     high_tracking_error_threshold=0.10,
-#     min_positions_warning=5,
-#     save_files=True,
-#     verbose=True,
-#     hedge_universe=None  # NEW PARAMETER
-# ):
-
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = BB()
     window.setWindowTitle("BasketBuster")
     window.show()
     sys.exit(app.exec())
+
